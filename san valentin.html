@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Galaxy Love Text</title>
+  <title>Galaxy Love Text (Pulsing RGB Galaxy)</title>
   <style>
     html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; }
     #bg-canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
@@ -17,7 +17,7 @@
     import { OrbitControls } from 'https://cdn.skypack.dev/three@0.136.0/examples/jsm/controls/OrbitControls.js';
 
     // =========================
-    // THREE.JS SCENE
+    // SCENE
     // =========================
     const canvas = document.getElementById('bg-canvas');
     const scene = new THREE.Scene();
@@ -33,9 +33,9 @@
     const controls = new OrbitControls(camera, canvas);
     controls.enableDamping = true;
     controls.enableZoom = true;
-    controls.zoomSpeed = 0.8;            // sensibilidad del zoom
-    controls.minDistance = 1.2;          // qué tan cerca puedes acercarte
-    controls.maxDistance = 30;           // qué tan lejos puedes alejarte
+    controls.zoomSpeed = 0.8;
+    controls.minDistance = 1.2;
+    controls.maxDistance = 30;
     controls.autoRotate = true;
     controls.autoRotateSpeed = 0.35;
     controls.dampingFactor = 0.05;
@@ -45,7 +45,7 @@
     // =========================
     const parameters = {
       count: 20000,
-      size: 0.015,
+      size: 0.020,     // ⭐ un poquito más grande
       radius: 8,
       branches: 4,
       spin: 1,
@@ -53,18 +53,24 @@
       randomnessPower: 3,
       insideColor: '#ff6030',
       outsideColor: '#1b3984',
-      jetCount: 0,
-      jetHeight: 6,
-      jetSpeed: 0.04
+      jetCount: 0
     };
 
-    let geometry = null, material = null, points = null;
+    // refs
+    let galaxyPoints = null;
+    let galaxyGeo = null;
+    let galaxyMat = null;
+
     let blackHoleMesh = null, accretionMesh = null, accretionMeshHalo = null, accretionPoints = null;
+
+    let bgStars = null;
+    let starMat = null;
 
     // =========================
     // BLACK HOLE
     // =========================
     const generateBlackHole = () => {
+      // cleanup
       if (blackHoleMesh) {
         scene.remove(blackHoleMesh);
         scene.remove(accretionMesh);
@@ -72,11 +78,13 @@
         if (accretionPoints) scene.remove(accretionPoints);
       }
 
+      // event horizon
       const bhGeometry = new THREE.SphereGeometry(0.25, 64, 64);
       const bhMaterial = new THREE.MeshBasicMaterial({ color: 0x000000 });
       blackHoleMesh = new THREE.Mesh(bhGeometry, bhMaterial);
       scene.add(blackHoleMesh);
 
+      // disk
       const diskGeometry = new THREE.RingGeometry(0.28, 0.55, 64, 8);
       const diskMaterial = new THREE.MeshBasicMaterial({
         color: 0xffaa00,
@@ -89,6 +97,7 @@
       accretionMesh.rotation.x = Math.PI / 2;
       scene.add(accretionMesh);
 
+      // halo ring
       const haloGeometry = new THREE.RingGeometry(0.26, 0.40, 64, 8);
       const haloMaterial = new THREE.MeshBasicMaterial({
         color: 0xff4400,
@@ -101,6 +110,7 @@
       accretionMeshHalo.rotation.y = Math.PI / 3;
       scene.add(accretionMeshHalo);
 
+      // accretion particles
       const accParticlesCount = 2500;
       const accGeo = new THREE.BufferGeometry();
       const accPos = new Float32Array(accParticlesCount * 3);
@@ -120,6 +130,7 @@
         const heat = 1 - ((r - 0.26) / 0.25);
         const pColor = baseColor.clone();
         pColor.offsetHSL(0, 0, heat * 0.5);
+
         accCol[i3] = pColor.r;
         accCol[i3 + 1] = pColor.g;
         accCol[i3 + 2] = pColor.b;
@@ -129,7 +140,7 @@
       accGeo.setAttribute('color', new THREE.BufferAttribute(accCol, 3));
 
       const accMat = new THREE.PointsMaterial({
-        size: 0.010,
+        size: 0.012,
         vertexColors: true,
         blending: THREE.AdditiveBlending,
         depthWrite: false
@@ -139,18 +150,19 @@
     };
 
     // =========================
-    // GALAXY
+    // GALAXY (SHADER: pulsing RGB aura)
     // =========================
-    const generateGalaxy = () => {
-      if (points) {
-        geometry.dispose();
-        material.dispose();
-        scene.remove(points);
+    const generateGalaxyShader = () => {
+      if (galaxyPoints) {
+        galaxyGeo.dispose();
+        galaxyMat.dispose();
+        scene.remove(galaxyPoints);
       }
 
-      geometry = new THREE.BufferGeometry();
+      galaxyGeo = new THREE.BufferGeometry();
       const positions = new Float32Array(parameters.count * 3);
-      const colors = new Float32Array(parameters.count * 3);
+      const baseColors = new Float32Array(parameters.count * 3);
+      const aSeed = new Float32Array(parameters.count);
 
       const colorInside = new THREE.Color(parameters.insideColor);
       const colorOutside = new THREE.Color(parameters.outsideColor);
@@ -176,118 +188,285 @@
         positions[i3 + 1] = y;
         positions[i3 + 2] = z;
 
-        const mixedColor = colorInside.clone();
-        mixedColor.lerp(colorOutside, radius / parameters.radius);
+        // base gradient (como antes)
+        const mixed = colorInside.clone().lerp(colorOutside, radius / parameters.radius);
+        baseColors[i3] = mixed.r;
+        baseColors[i3 + 1] = mixed.g;
+        baseColors[i3 + 2] = mixed.b;
 
-        colors[i3] = mixedColor.r;
-        colors[i3 + 1] = mixedColor.g;
-        colors[i3 + 2] = mixedColor.b;
+        aSeed[i] = Math.random();
       }
 
-      geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-      geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+      galaxyGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      galaxyGeo.setAttribute('aBaseColor', new THREE.BufferAttribute(baseColors, 3));
+      galaxyGeo.setAttribute('aSeed', new THREE.BufferAttribute(aSeed, 1));
 
-      material = new THREE.PointsMaterial({
-        size: parameters.size,
-        sizeAttenuation: true,
+      galaxyMat = new THREE.ShaderMaterial({
+        transparent: true,
         depthWrite: false,
         blending: THREE.AdditiveBlending,
-        vertexColors: true
+        uniforms: {
+          uTime: { value: 0 },
+          uPixelRatio: { value: renderer.getPixelRatio() },
+          uSize: { value: parameters.size },
+
+          // Ajustes del pulso RGB
+          uHueSpeed:   { value: 0.20 }, // velocidad de cambio de color
+          uPulseSpeed: { value: 1.60 }, // velocidad de pulso
+          uPulseAmp:   { value: 0.35 }, // fuerza del pulso (0..1)
+          uTintMix:    { value: 0.55 }, // mezcla tint RGB vs color base
+          uWaveFreq:   { value: 0.55 }, // onda “aura” por distancia
+        },
+        vertexShader: `
+          uniform float uTime;
+          uniform float uPixelRatio;
+          uniform float uSize;
+
+          attribute vec3 aBaseColor;
+          attribute float aSeed;
+
+          varying vec3 vBaseColor;
+          varying vec3 vPos;
+          varying float vSeed;
+
+          void main() {
+            vBaseColor = aBaseColor;
+            vPos = position;
+            vSeed = aSeed;
+
+            vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+
+            // tamaño en pantalla con perspectiva
+            gl_PointSize = (uSize * 100.0) * uPixelRatio * (1.0 / -mvPosition.z);
+
+            gl_Position = projectionMatrix * mvPosition;
+          }
+        `,
+        fragmentShader: `
+          precision highp float;
+
+          uniform float uTime;
+          uniform float uHueSpeed;
+          uniform float uPulseSpeed;
+          uniform float uPulseAmp;
+          uniform float uTintMix;
+          uniform float uWaveFreq;
+
+          varying vec3 vBaseColor;
+          varying vec3 vPos;
+          varying float vSeed;
+
+          vec3 hsl2rgb(vec3 c) {
+            vec3 rgb = clamp(abs(mod(c.x*6.0 + vec3(0.0,4.0,2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);
+            return c.z + c.y * (rgb - 0.5) * (1.0 - abs(2.0*c.z - 1.0));
+          }
+
+          void main() {
+            // Glow circular con borde suave
+            vec2 uv = gl_PointCoord.xy * 2.0 - 1.0;
+            float r = dot(uv, uv);
+            if (r > 1.0) discard;
+
+            float core = smoothstep(1.0, 0.0, r);
+            float halo = smoothstep(1.0, 0.15, r) * 0.55;
+            float shape = core * 0.9 + halo;
+
+            // === Aura RGB pulsante ===
+            float radial = length(vPos.xz);
+
+            // onda espacial + tiempo (da sensación “luz viva”)
+            float wave = sin(radial * uWaveFreq - uTime * 0.9);
+
+            // hue global + onda + seed
+            float hue = fract(uTime * uHueSpeed + wave * 0.12 + vSeed * 0.03);
+
+            // pulso general (como “latido”)
+            float pulse = 1.0 + uPulseAmp * sin(uTime * uPulseSpeed);
+
+            // twinkle leve por estrella
+            float tw = 0.85 + 0.15 * sin(uTime * (1.7 + vSeed * 2.0) + vSeed * 10.0);
+
+            // tint RGB (luminosidad sube/baja con wave)
+            float light = clamp(0.55 + 0.18 * wave, 0.35, 0.78);
+            vec3 tint = hsl2rgb(vec3(hue, 1.0, light));
+
+            // mezcla entre color base + tint
+            vec3 col = mix(vBaseColor, tint, uTintMix);
+
+            // brillo final
+            col *= (1.10 + 0.55 * shape) * pulse;
+
+            float alpha = clamp(shape * 0.95 * tw, 0.0, 1.0);
+            gl_FragColor = vec4(col, alpha);
+          }
+        `
       });
 
-      points = new THREE.Points(geometry, material);
-      scene.add(points);
+      galaxyPoints = new THREE.Points(galaxyGeo, galaxyMat);
+      scene.add(galaxyPoints);
     };
 
     // =========================
-    // BACKGROUND STARS
+    // BACKGROUND STARS (SHADER rainbow wave)
     // =========================
-    const generateBgStars = () => {
-      const starGeometry = new THREE.BufferGeometry();
-      const starCount = 3000;
-      const starPositions = new Float32Array(starCount * 3);
+    const generateBgStarsShader = () => {
+      if (bgStars) {
+        bgStars.geometry.dispose();
+        bgStars.material.dispose();
+        scene.remove(bgStars);
+      }
+
+      const starCount = 4200;
+      const starGeo = new THREE.BufferGeometry();
+      const pos = new Float32Array(starCount * 3);
+      const aSize = new Float32Array(starCount);
+      const aSeed = new Float32Array(starCount);
 
       for (let i = 0; i < starCount; i++) {
         const i3 = i * 3;
-        const r = 15 + Math.random() * 90;
+        const R = 18 + Math.random() * 95;
         const theta = 2 * Math.PI * Math.random();
         const phi = Math.acos(2 * Math.random() - 1);
 
-        starPositions[i3]     = r * Math.sin(phi) * Math.cos(theta);
-        starPositions[i3 + 1] = r * Math.sin(phi) * Math.sin(theta);
-        starPositions[i3 + 2] = r * Math.cos(phi);
+        pos[i3]     = R * Math.sin(phi) * Math.cos(theta);
+        pos[i3 + 1] = R * Math.sin(phi) * Math.sin(theta);
+        pos[i3 + 2] = R * Math.cos(phi);
+
+        aSize[i] = 7.0 + Math.random() * 11.0;
+        aSeed[i] = Math.random();
       }
 
-      starGeometry.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
-      const starMaterial = new THREE.PointsMaterial({
-        color: 0x888888,
-        size: 0.03,
-        sizeAttenuation: true,
+      starGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      starGeo.setAttribute('aSize', new THREE.BufferAttribute(aSize, 1));
+      starGeo.setAttribute('aSeed', new THREE.BufferAttribute(aSeed, 1));
+
+      starMat = new THREE.ShaderMaterial({
         transparent: true,
-        opacity: 0.5,
-        depthWrite: false
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        uniforms: {
+          uTime: { value: 0 },
+          uPixelRatio: { value: renderer.getPixelRatio() },
+          uBaseOpacity: { value: 0.85 },
+          uSpeed: { value: 0.55 },
+          uFreq:  { value: 0.09 },
+        },
+        vertexShader: `
+          uniform float uPixelRatio;
+          attribute float aSize;
+          attribute float aSeed;
+          varying vec3 vWorldPos;
+          varying float vSeed;
+
+          void main() {
+            vWorldPos = position;
+            vSeed = aSeed;
+
+            vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+            gl_PointSize = (aSize * uPixelRatio) * (1.0 / -mvPosition.z);
+            gl_Position = projectionMatrix * mvPosition;
+          }
+        `,
+        fragmentShader: `
+          precision highp float;
+
+          uniform float uTime;
+          uniform float uBaseOpacity;
+          uniform float uSpeed;
+          uniform float uFreq;
+
+          varying vec3 vWorldPos;
+          varying float vSeed;
+
+          vec3 hsl2rgb(vec3 c) {
+            vec3 rgb = clamp(abs(mod(c.x*6.0 + vec3(0.0,4.0,2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);
+            return c.z + c.y * (rgb - 0.5) * (1.0 - abs(2.0*c.z - 1.0));
+          }
+
+          void main() {
+            vec2 uv = gl_PointCoord.xy * 2.0 - 1.0;
+            float r = dot(uv, uv);
+            if (r > 1.0) discard;
+
+            float core = smoothstep(1.0, 0.0, r);
+            float halo = smoothstep(1.0, 0.2, r) * 0.65;
+            float alphaShape = (core * 0.9 + halo);
+
+            float radial = length(vWorldPos.xz);
+            float wave = sin(radial * uFreq - uTime * uSpeed);
+            float hue = fract(uTime * 0.08 + wave * 0.18);
+
+            float tw = 0.80 + 0.20 * sin(uTime * (2.2 + vSeed*2.0) + vSeed*10.0);
+            float pulse = 0.78 + 0.22 * sin(uTime * 1.35);
+
+            float light = clamp(0.55 + 0.22 * wave, 0.35, 0.78);
+            vec3 rgb = hsl2rgb(vec3(hue, 1.0, light));
+            rgb *= (1.15 + 0.45 * alphaShape);
+
+            float opacity = uBaseOpacity * alphaShape * tw * pulse;
+            gl_FragColor = vec4(rgb, opacity);
+          }
+        `
       });
 
-      scene.add(new THREE.Points(starGeometry, starMaterial));
+      bgStars = new THREE.Points(starGeo, starMat);
+      scene.add(bgStars);
     };
 
     // =========================
-    // "TE AMO" TEXTS IN SPACE
+    // TEXTS IN SPACE (tu lista)
     // =========================
-const lovePhrases = [
-  { t: "Los amo, feliz San Valentín", lang: "ES" },
-  { t: "Jose Alfredo", lang: "ES" },
-  { t: "LaDuffyINC", lang: "ES" },
-  { t: "Duffy||Prod", lang: "ES" },
-  { t: "🎮𝙳𝚊𝚗𝚝𝚎 𝙹𝚀 🐾", lang: "ES" },
-  { t: "×͜×ᴛɪᴛᴀɴ_ᴄᴀᴘɪ┊ᴇᴅɪᴛs┊ᴅ┊ɴɪɴɪ♡", lang: "ES" },
-  { t: "elToño", lang: "ES" },
-  { t: "Javier28199 Perrito D”Katia", lang: "ES" },
-  { t: "kingojira01", lang: "ES" },
-  { t: "Thanos 💖✨", lang: "ES" },
-  { t: "Nara", lang: "ES" },
-  { t: "Ed_Rz(honeylemon)", lang: "ES" },
-  { t: "Sukuna", lang: "ES" },
-  { t: "López", lang: "ES" },
-  { t: "ETER", lang: "ES" },
-  { t: "Chuys", lang: "ES" },
-  { t: "🍒Marroncito*Rands🍒🐰😈", lang: "ES" },
-  { t: "Jorge", lang: "ES" },
-  { t: "Brayan", lang: "ES" },
-  { t: "Ale Sempai", lang: "ES" },
-  { t: "Mark_My_Love", lang: "ES" },
-  { t: "Mark_Tu_Amorcito 💖", lang: "ES" },
-  { t: "𝓱𝓪𝔂𝓲𝓶𝓮 𝓭𝓮 𝓱𝓮𝔂", lang: "ES" },
-  { t: "Johan", lang: "ES" },
-  { t: "KENTA", lang: "ES" },
-  { t: "santiago", lang: "ES" },
-  { t: "Lu.ARMOA", lang: "ES" },
-  { t: "Sergio", lang: "ES" },
-  { t: "Santy", lang: "ES" },
-  { t: "Obed", lang: "ES" },
-  { t: "RevliD", lang: "ES" },
-  { t: "Daniel_ak", lang: "ES" },
-  { t: "Nemuresu Shin", lang: "ES" },
-  { t: "Amane", lang: "ES" },
-  { t: "WhioSFFD", lang: "ES" },
-  { t: "szdeku", lang: "ES" },
-  { t: "DizekVT", lang: "ES" },
-  { t: "Erik", lang: "ES" },
-  { t: "eduarv", lang: "ES" },
-  { t: "vikozuky", lang: "ES" },
-  { t: "Diego", lang: "ES" },
-  { t: "Martin", lang: "ES" },
-  { t: "Juan", lang: "ES" },
-  { t: "USAGIVR", lang: "ES" },
-  { t: "Eduardo👽", lang: "ES" },
-  { t: "Israel guapo", lang: "ES" },
-  { t: "Sammy", lang: "ES" },
-    { t: "Alexis MTV", lang: "ES" },
+    const lovePhrases = [
+      { t: "Los amo, feliz San Valentín", lang: "ES" },
+      { t: "Jose Alfredo", lang: "ES" },
+      { t: "LaDuffyINC", lang: "ES" },
+      { t: "Duffy||Prod", lang: "ES" },
+      { t: "🎮𝙳𝚊𝚗𝚝𝚎 𝙹𝚀 🐾", lang: "ES" },
+      { t: "×͜×ᴛɪᴛᴀɴ_ᴄᴀᴘɪ┊ᴇᴅɪᴛs┊ᴅ┊ɴɪɴɪ♡", lang: "ES" },
+      { t: "elToño", lang: "ES" },
+      { t: "Javier28199 Perrito D”Katia", lang: "ES" },
+      { t: "kingojira01", lang: "ES" },
+      { t: "Thanos 💖✨", lang: "ES" },
+      { t: "Nara", lang: "ES" },
+      { t: "Ed_Rz(honeylemon)", lang: "ES" },
+      { t: "Sukuna", lang: "ES" },
+      { t: "López", lang: "ES" },
+      { t: "ETER", lang: "ES" },
+      { t: "Chuys", lang: "ES" },
+      { t: "🍒Marroncito*Rands🍒🐰😈", lang: "ES" },
+      { t: "Jorge", lang: "ES" },
+      { t: "Brayan", lang: "ES" },
+      { t: "Ale Sempai", lang: "ES" },
+      { t: "Mark_My_Love", lang: "ES" },
+      { t: "Mark_Tu_Amorcito 💖", lang: "ES" },
+      { t: "𝓱𝓪𝔂𝓲𝓶𝓮 𝓭𝓮 𝓱𝓮𝔂", lang: "ES" },
+      { t: "Johan", lang: "ES" },
+      { t: "KENTA", lang: "ES" },
+      { t: "santiago", lang: "ES" },
+      { t: "Lu.ARMOA", lang: "ES" },
+      { t: "Sergio", lang: "ES" },
+      { t: "Santy", lang: "ES" },
+      { t: "Obed", lang: "ES" },
+      { t: "RevliD", lang: "ES" },
+      { t: "Daniel_ak", lang: "ES" },
+      { t: "Nemuresu Shin", lang: "ES" },
+      { t: "Amane", lang: "ES" },
+      { t: "WhioSFFD", lang: "ES" },
+      { t: "szdeku", lang: "ES" },
+      { t: "DizekVT", lang: "ES" },
+      { t: "Erik", lang: "ES" },
+      { t: "eduarv", lang: "ES" },
+      { t: "vikozuky", lang: "ES" },
+      { t: "Diego", lang: "ES" },
+      { t: "Martin", lang: "ES" },
+      { t: "Juan", lang: "ES" },
+      { t: "USAGIVR", lang: "ES" },
+      { t: "Eduardo👽", lang: "ES" },
+      { t: "Israel guapo", lang: "ES" },
+      { t: "Sammy", lang: "ES" },
+      { t: "Alexis MTV", lang: "ES" },
       { t: "ElpadrinoXbox🐼", lang: "ES" },
-
-];
-
-
+    ];
 
     const fontStacks = [
       "900 64px Inter, system-ui, sans-serif",
@@ -306,29 +485,24 @@ const lovePhrases = [
     const rand = (min, max) => min + Math.random() * (max - min);
 
     function makeTextSprite(text, options = {}) {
-      const {
-        font = fontStacks[(Math.random() * fontStacks.length) | 0],
-        fill = options.fill || `hsla(${(Math.random() * 360) | 0}, 90%, 60%, 0.95)`,
-        stroke = options.stroke || "rgba(255,255,255,0.25)",
-        strokeWidth = options.strokeWidth ?? 6,
-        glow = options.glow ?? true,
-        padding = options.padding ?? 50
-      } = options;
+      const font = fontStacks[(Math.random() * fontStacks.length) | 0];
+      const fill = options.fill || `hsla(${(Math.random() * 360) | 0}, 90%, 60%, 0.95)`;
+      const stroke = options.stroke || "rgba(255,255,255,0.25)";
+      const strokeWidth = options.strokeWidth ?? 6;
+      const glow = options.glow ?? true;
+      const padding = options.padding ?? 50;
 
-      const canvas = document.createElement("canvas");
-      const ctx = canvas.getContext("2d");
+      const c = document.createElement("canvas");
+      const ctx = c.getContext("2d");
 
-      // measure
       ctx.font = font;
-      const metrics = ctx.measureText(text);
-      const textW = Math.ceil(metrics.width);
-      const textH = 80; // approx line-height
+      const w = Math.ceil(ctx.measureText(text).width);
+      const h = 80;
 
-      canvas.width = textW + padding * 2;
-      canvas.height = textH + padding * 2;
+      c.width = w + padding * 2;
+      c.height = h + padding * 2;
 
-      // draw
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.clearRect(0, 0, c.width, c.height);
       ctx.font = font;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
@@ -338,67 +512,53 @@ const lovePhrases = [
         ctx.shadowBlur = 30;
       }
 
-      // stroke
       ctx.lineWidth = strokeWidth;
       ctx.strokeStyle = stroke;
-      ctx.strokeText(text, canvas.width / 2, canvas.height / 2);
+      ctx.strokeText(text, c.width / 2, c.height / 2);
 
-      // fill
       ctx.fillStyle = fill;
-      ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+      ctx.fillText(text, c.width / 2, c.height / 2);
 
-      const texture = new THREE.CanvasTexture(canvas);
-      texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
-      texture.needsUpdate = true;
+      const tex = new THREE.CanvasTexture(c);
+      tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+      tex.needsUpdate = true;
 
-      const material = new THREE.SpriteMaterial({
-        map: texture,
+      const mat = new THREE.SpriteMaterial({
+        map: tex,
         transparent: true,
         depthWrite: false,
         blending: THREE.AdditiveBlending
       });
 
-      const sprite = new THREE.Sprite(material);
-      sprite.userData.baseScale = rand(0.35, 0.85); // will be adjusted for distance
+      const sprite = new THREE.Sprite(mat);
+      sprite.userData.baseScale = rand(0.35, 0.85);
       sprite.scale.set(sprite.userData.baseScale * 2.2, sprite.userData.baseScale * 1.0, 1);
-
       return sprite;
     }
 
-    function placeLoveTexts(count = 80) {
-      // clear previous
+    function placeLoveTexts(count = 90) {
       while (loveGroup.children.length) {
         const obj = loveGroup.children.pop();
         if (obj.material?.map) obj.material.map.dispose();
         if (obj.material) obj.material.dispose();
       }
 
-      // distribute around/within galaxy radius band
       for (let i = 0; i < count; i++) {
         const p = lovePhrases[(Math.random() * lovePhrases.length) | 0].t;
 
         const sprite = makeTextSprite(p, {
-          // random stroke + glow feel
           stroke: `hsla(${(Math.random() * 360) | 0}, 80%, 85%, 0.18)`,
           strokeWidth: (Math.random() < 0.5 ? 5 : 7),
           glow: true
         });
 
-        // random position in a thick disk + some outliers
         const radius = Math.random() < 0.85 ? rand(1.2, parameters.radius * 0.95) : rand(parameters.radius * 0.95, parameters.radius * 1.35);
         const angle = rand(0, Math.PI * 2);
-        const height = (Math.random() - 0.5) * rand(0.25, 2.2); // thickness
+        const height = (Math.random() - 0.5) * rand(0.25, 2.2);
 
-        sprite.position.set(
-          Math.cos(angle) * radius,
-          height,
-          Math.sin(angle) * radius
-        );
-
-        // random rotation by using sprite center + slight tilt illusion (sprite itself always faces camera)
+        sprite.position.set(Math.cos(angle) * radius, height, Math.sin(angle) * radius);
         sprite.center.set(0.5, 0.5);
 
-        // small drift parameters
         sprite.userData.drift = {
           ax: rand(-0.25, 0.25),
           ay: rand(-0.10, 0.10),
@@ -410,10 +570,12 @@ const lovePhrases = [
       }
     }
 
-    // init scene
+    // =========================
+    // INIT
+    // =========================
     generateBlackHole();
-    generateGalaxy();
-    generateBgStars();
+    generateGalaxyShader();
+    generateBgStarsShader();
     placeLoveTexts(90);
 
     // =========================
@@ -424,26 +586,31 @@ const lovePhrases = [
     function tick() {
       const t = clock.getElapsedTime();
 
-      if (points) points.rotation.y = t * 0.05;
+      // animate central system
       if (accretionPoints) accretionPoints.rotation.y = t * 2.0;
       if (accretionMesh) accretionMesh.rotation.z = t * 1.5;
       if (accretionMeshHalo) accretionMeshHalo.rotation.z = -t * 0.5;
 
-      // love text motion + keep readable scale
+      // rotate galaxy slowly
+      if (galaxyPoints) galaxyPoints.rotation.y = t * 0.05;
+
+      // update shader times (ESTO es lo que hace el pulso real)
+      if (galaxyMat) galaxyMat.uniforms.uTime.value = t;
+      if (starMat) starMat.uniforms.uTime.value = t;
+
+      // drift text
       for (const s of loveGroup.children) {
         const d = s.userData.drift;
         s.position.x += Math.sin(t * d.speed + d.ax) * 0.0008;
         s.position.y += Math.cos(t * d.speed + d.ay) * 0.0005;
         s.position.z += Math.sin(t * d.speed + d.az) * 0.0008;
 
-        // clamp slightly so they don't drift away
-        const r = Math.sqrt(s.position.x ** 2 + s.position.z ** 2);
-        if (r > parameters.radius * 1.6) {
+        const rr = Math.sqrt(s.position.x ** 2 + s.position.z ** 2);
+        if (rr > parameters.radius * 1.6) {
           s.position.x *= 0.98;
           s.position.z *= 0.98;
         }
 
-        // distance-based scale (keeps them visible)
         const dist = camera.position.distanceTo(s.position);
         const scale = s.userData.baseScale * THREE.MathUtils.clamp(dist / 10, 0.8, 1.8);
         s.scale.set(scale * 2.2, scale * 1.0, 1);
@@ -463,7 +630,10 @@ const lovePhrases = [
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight);
 
-      // optional: regenerate text sprites for sharpness at new resolution
+      const pr = renderer.getPixelRatio();
+      if (galaxyMat) galaxyMat.uniforms.uPixelRatio.value = pr;
+      if (starMat) starMat.uniforms.uPixelRatio.value = pr;
+
       placeLoveTexts(90);
     });
   </script>
