@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Galaxy Love Text</title>
+  <style>
+    html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; }
+    #bg-canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
+  </style>
+</head>
+<body>
+  <canvas id="bg-canvas"></canvas>
+
+  <script type="module">
+    import * as THREE from 'https://cdn.skypack.dev/three@0.136.0';
+    import { OrbitControls } from 'https://cdn.skypack.dev/three@0.136.0/examples/jsm/controls/OrbitControls.js';
+
+    // =========================
+    // THREE.JS SCENE
+    // =========================
+    const canvas = document.getElementById('bg-canvas');
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(0x000000, 0.03);
+
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 120);
+    camera.position.set(4, 3, 6);
+
+    const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+    const controls = new OrbitControls(camera, canvas);
+    controls.enableDamping = true;
+    controls.enableZoom = true;
+    controls.zoomSpeed = 0.8;            // sensibilidad del zoom
+    controls.minDistance = 1.2;          // qué tan cerca puedes acercarte
+    controls.maxDistance = 30;           // qué tan lejos puedes alejarte
+    controls.autoRotate = true;
+    controls.autoRotateSpeed = 0.35;
+    controls.dampingFactor = 0.05;
+
+    // =========================
+    // GALAXY CONFIG
+    // =========================
+    const parameters = {
+      count: 20000,
+      size: 0.015,
+      radius: 8,
+      branches: 4,
+      spin: 1,
+      randomness: 0.3,
+      randomnessPower: 3,
+      insideColor: '#ff6030',
+      outsideColor: '#1b3984',
+      jetCount: 0,
+      jetHeight: 6,
+      jetSpeed: 0.04
+    };
+
+    let geometry = null, material = null, points = null;
+    let blackHoleMesh = null, accretionMesh = null, accretionMeshHalo = null, accretionPoints = null;
+
+    // =========================
+    // BLACK HOLE
+    // =========================
+    const generateBlackHole = () => {
+      if (blackHoleMesh) {
+        scene.remove(blackHoleMesh);
+        scene.remove(accretionMesh);
+        scene.remove(accretionMeshHalo);
+        if (accretionPoints) scene.remove(accretionPoints);
+      }
+
+      const bhGeometry = new THREE.SphereGeometry(0.25, 64, 64);
+      const bhMaterial = new THREE.MeshBasicMaterial({ color: 0x000000 });
+      blackHoleMesh = new THREE.Mesh(bhGeometry, bhMaterial);
+      scene.add(blackHoleMesh);
+
+      const diskGeometry = new THREE.RingGeometry(0.28, 0.55, 64, 8);
+      const diskMaterial = new THREE.MeshBasicMaterial({
+        color: 0xffaa00,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.7,
+        blending: THREE.AdditiveBlending
+      });
+      accretionMesh = new THREE.Mesh(diskGeometry, diskMaterial);
+      accretionMesh.rotation.x = Math.PI / 2;
+      scene.add(accretionMesh);
+
+      const haloGeometry = new THREE.RingGeometry(0.26, 0.40, 64, 8);
+      const haloMaterial = new THREE.MeshBasicMaterial({
+        color: 0xff4400,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.4,
+        blending: THREE.AdditiveBlending
+      });
+      accretionMeshHalo = new THREE.Mesh(haloGeometry, haloMaterial);
+      accretionMeshHalo.rotation.y = Math.PI / 3;
+      scene.add(accretionMeshHalo);
+
+      const accParticlesCount = 2500;
+      const accGeo = new THREE.BufferGeometry();
+      const accPos = new Float32Array(accParticlesCount * 3);
+      const accCol = new Float32Array(accParticlesCount * 3);
+      const baseColor = new THREE.Color(0xffaa55);
+
+      for (let i = 0; i < accParticlesCount; i++) {
+        const i3 = i * 3;
+        const r = 0.26 + Math.random() * 0.25;
+        const angle = Math.random() * Math.PI * 2;
+        const y = (Math.random() - 0.5) * 0.015;
+
+        accPos[i3] = Math.cos(angle) * r;
+        accPos[i3 + 1] = y;
+        accPos[i3 + 2] = Math.sin(angle) * r;
+
+        const heat = 1 - ((r - 0.26) / 0.25);
+        const pColor = baseColor.clone();
+        pColor.offsetHSL(0, 0, heat * 0.5);
+        accCol[i3] = pColor.r;
+        accCol[i3 + 1] = pColor.g;
+        accCol[i3 + 2] = pColor.b;
+      }
+
+      accGeo.setAttribute('position', new THREE.BufferAttribute(accPos, 3));
+      accGeo.setAttribute('color', new THREE.BufferAttribute(accCol, 3));
+
+      const accMat = new THREE.PointsMaterial({
+        size: 0.010,
+        vertexColors: true,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+      });
+      accretionPoints = new THREE.Points(accGeo, accMat);
+      scene.add(accretionPoints);
+    };
+
+    // =========================
+    // GALAXY
+    // =========================
+    const generateGalaxy = () => {
+      if (points) {
+        geometry.dispose();
+        material.dispose();
+        scene.remove(points);
+      }
+
+      geometry = new THREE.BufferGeometry();
+      const positions = new Float32Array(parameters.count * 3);
+      const colors = new Float32Array(parameters.count * 3);
+
+      const colorInside = new THREE.Color(parameters.insideColor);
+      const colorOutside = new THREE.Color(parameters.outsideColor);
+
+      for (let i = 0; i < parameters.count; i++) {
+        const i3 = i * 3;
+
+        let radius = Math.random() * parameters.radius;
+        if (radius < 1.0) radius += 1.0;
+
+        const spinAngle = radius * parameters.spin;
+        const branchAngle = (i % parameters.branches) / parameters.branches * Math.PI * 2;
+
+        const randomX = Math.pow(Math.random(), parameters.randomnessPower) * (Math.random() < 0.5 ? 1 : -1) * parameters.randomness * radius;
+        const randomY = Math.pow(Math.random(), parameters.randomnessPower) * (Math.random() < 0.5 ? 1 : -1) * parameters.randomness * radius;
+        const randomZ = Math.pow(Math.random(), parameters.randomnessPower) * (Math.random() < 0.5 ? 1 : -1) * parameters.randomness * radius;
+
+        const x = Math.cos(branchAngle + spinAngle) * radius + randomX;
+        const y = randomY / 2;
+        const z = Math.sin(branchAngle + spinAngle) * radius + randomZ;
+
+        positions[i3] = x;
+        positions[i3 + 1] = y;
+        positions[i3 + 2] = z;
+
+        const mixedColor = colorInside.clone();
+        mixedColor.lerp(colorOutside, radius / parameters.radius);
+
+        colors[i3] = mixedColor.r;
+        colors[i3 + 1] = mixedColor.g;
+        colors[i3 + 2] = mixedColor.b;
+      }
+
+      geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+      material = new THREE.PointsMaterial({
+        size: parameters.size,
+        sizeAttenuation: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        vertexColors: true
+      });
+
+      points = new THREE.Points(geometry, material);
+      scene.add(points);
+    };
+
+    // =========================
+    // BACKGROUND STARS
+    // =========================
+    const generateBgStars = () => {
+      const starGeometry = new THREE.BufferGeometry();
+      const starCount = 3000;
+      const starPositions = new Float32Array(starCount * 3);
+
+      for (let i = 0; i < starCount; i++) {
+        const i3 = i * 3;
+        const r = 15 + Math.random() * 90;
+        const theta = 2 * Math.PI * Math.random();
+        const phi = Math.acos(2 * Math.random() - 1);
+
+        starPositions[i3]     = r * Math.sin(phi) * Math.cos(theta);
+        starPositions[i3 + 1] = r * Math.sin(phi) * Math.sin(theta);
+        starPositions[i3 + 2] = r * Math.cos(phi);
+      }
+
+      starGeometry.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+      const starMaterial = new THREE.PointsMaterial({
+        color: 0x888888,
+        size: 0.03,
+        sizeAttenuation: true,
+        transparent: true,
+        opacity: 0.5,
+        depthWrite: false
+      });
+
+      scene.add(new THREE.Points(starGeometry, starMaterial));
+    };
+
+    // =========================
+    // "TE AMO" TEXTS IN SPACE
+    // =========================
+const lovePhrases = [
+  { t: "Los amo, feliz San Valentín", lang: "ES" },
+  { t: "Jose Alfredo", lang: "ES" },
+  { t: "LaDuffyINC", lang: "ES" },
+  { t: "Duffy||Prod", lang: "ES" },
+  { t: "🎮𝙳𝚊𝚗𝚝𝚎 𝙹𝚀 🐾", lang: "ES" },
+  { t: "×͜×ᴛɪᴛᴀɴ_ᴄᴀᴘɪ┊ᴇᴅɪᴛs┊ᴅ┊ɴɪɴɪ♡", lang: "ES" },
+  { t: "elToño", lang: "ES" },
+  { t: "Javier28199 Perrito D”Katia", lang: "ES" },
+  { t: "kingojira01", lang: "ES" },
+  { t: "Thanos 💖✨", lang: "ES" },
+  { t: "Nara", lang: "ES" },
+  { t: "Ed_Rz(honeylemon)", lang: "ES" },
+  { t: "Sukuna", lang: "ES" },
+  { t: "López", lang: "ES" },
+  { t: "ETER", lang: "ES" },
+  { t: "Chuys", lang: "ES" },
+  { t: "🍒Marroncito*Rands🍒🐰😈", lang: "ES" },
+  { t: "Jorge", lang: "ES" },
+  { t: "Brayan", lang: "ES" },
+  { t: "Ale Sempai", lang: "ES" },
+  { t: "Mark_My_Love", lang: "ES" },
+  { t: "Mark_Tu_Amorcito 💖", lang: "ES" },
+  { t: "𝓱𝓪𝔂𝓲𝓶𝓮 𝓭𝓮 𝓱𝓮𝔂", lang: "ES" },
+  { t: "Johan", lang: "ES" },
+  { t: "KENTA", lang: "ES" },
+  { t: "santiago", lang: "ES" },
+  { t: "Lu.ARMOA", lang: "ES" },
+  { t: "Sergio", lang: "ES" },
+  { t: "Santy", lang: "ES" },
+  { t: "Obed", lang: "ES" },
+  { t: "RevliD", lang: "ES" },
+  { t: "Daniel_ak", lang: "ES" },
+  { t: "Nemuresu Shin", lang: "ES" },
+  { t: "Amane", lang: "ES" },
+  { t: "WhioSFFD", lang: "ES" },
+  { t: "szdeku", lang: "ES" },
+  { t: "DizekVT", lang: "ES" },
+  { t: "Erik", lang: "ES" },
+  { t: "eduarv", lang: "ES" },
+  { t: "vikozuky", lang: "ES" },
+  { t: "Diego", lang: "ES" },
+  { t: "Martin", lang: "ES" },
+  { t: "Juan", lang: "ES" },
+    { t: "USAGIVR", lang: "ES" },
+        { t: "Eduardo👽", lang: "ES" },
+
+];
+
+
+
+    const fontStacks = [
+      "900 64px Inter, system-ui, sans-serif",
+      "800 64px system-ui, -apple-system, Segoe UI, sans-serif",
+      "900 64px 'Trebuchet MS', Arial, sans-serif",
+      "800 64px 'Arial Black', Arial, sans-serif",
+      "900 64px Georgia, serif",
+      "900 64px 'Times New Roman', serif",
+      "800 64px Verdana, sans-serif",
+      "900 64px Tahoma, sans-serif"
+    ];
+
+    const loveGroup = new THREE.Group();
+    scene.add(loveGroup);
+
+    const rand = (min, max) => min + Math.random() * (max - min);
+
+    function makeTextSprite(text, options = {}) {
+      const {
+        font = fontStacks[(Math.random() * fontStacks.length) | 0],
+        fill = options.fill || `hsla(${(Math.random() * 360) | 0}, 90%, 60%, 0.95)`,
+        stroke = options.stroke || "rgba(255,255,255,0.25)",
+        strokeWidth = options.strokeWidth ?? 6,
+        glow = options.glow ?? true,
+        padding = options.padding ?? 50
+      } = options;
+
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+
+      // measure
+      ctx.font = font;
+      const metrics = ctx.measureText(text);
+      const textW = Math.ceil(metrics.width);
+      const textH = 80; // approx line-height
+
+      canvas.width = textW + padding * 2;
+      canvas.height = textH + padding * 2;
+
+      // draw
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.font = font;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+
+      if (glow) {
+        ctx.shadowColor = fill;
+        ctx.shadowBlur = 30;
+      }
+
+      // stroke
+      ctx.lineWidth = strokeWidth;
+      ctx.strokeStyle = stroke;
+      ctx.strokeText(text, canvas.width / 2, canvas.height / 2);
+
+      // fill
+      ctx.fillStyle = fill;
+      ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+      texture.needsUpdate = true;
+
+      const material = new THREE.SpriteMaterial({
+        map: texture,
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending
+      });
+
+      const sprite = new THREE.Sprite(material);
+      sprite.userData.baseScale = rand(0.35, 0.85); // will be adjusted for distance
+      sprite.scale.set(sprite.userData.baseScale * 2.2, sprite.userData.baseScale * 1.0, 1);
+
+      return sprite;
+    }
+
+    function placeLoveTexts(count = 80) {
+      // clear previous
+      while (loveGroup.children.length) {
+        const obj = loveGroup.children.pop();
+        if (obj.material?.map) obj.material.map.dispose();
+        if (obj.material) obj.material.dispose();
+      }
+
+      // distribute around/within galaxy radius band
+      for (let i = 0; i < count; i++) {
+        const p = lovePhrases[(Math.random() * lovePhrases.length) | 0].t;
+
+        const sprite = makeTextSprite(p, {
+          // random stroke + glow feel
+          stroke: `hsla(${(Math.random() * 360) | 0}, 80%, 85%, 0.18)`,
+          strokeWidth: (Math.random() < 0.5 ? 5 : 7),
+          glow: true
+        });
+
+        // random position in a thick disk + some outliers
+        const radius = Math.random() < 0.85 ? rand(1.2, parameters.radius * 0.95) : rand(parameters.radius * 0.95, parameters.radius * 1.35);
+        const angle = rand(0, Math.PI * 2);
+        const height = (Math.random() - 0.5) * rand(0.25, 2.2); // thickness
+
+        sprite.position.set(
+          Math.cos(angle) * radius,
+          height,
+          Math.sin(angle) * radius
+        );
+
+        // random rotation by using sprite center + slight tilt illusion (sprite itself always faces camera)
+        sprite.center.set(0.5, 0.5);
+
+        // small drift parameters
+        sprite.userData.drift = {
+          ax: rand(-0.25, 0.25),
+          ay: rand(-0.10, 0.10),
+          az: rand(-0.25, 0.25),
+          speed: rand(0.05, 0.25)
+        };
+
+        loveGroup.add(sprite);
+      }
+    }
+
+    // init scene
+    generateBlackHole();
+    generateGalaxy();
+    generateBgStars();
+    placeLoveTexts(90);
+
+    // =========================
+    // ANIMATION LOOP
+    // =========================
+    const clock = new THREE.Clock();
+
+    function tick() {
+      const t = clock.getElapsedTime();
+
+      if (points) points.rotation.y = t * 0.05;
+      if (accretionPoints) accretionPoints.rotation.y = t * 2.0;
+      if (accretionMesh) accretionMesh.rotation.z = t * 1.5;
+      if (accretionMeshHalo) accretionMeshHalo.rotation.z = -t * 0.5;
+
+      // love text motion + keep readable scale
+      for (const s of loveGroup.children) {
+        const d = s.userData.drift;
+        s.position.x += Math.sin(t * d.speed + d.ax) * 0.0008;
+        s.position.y += Math.cos(t * d.speed + d.ay) * 0.0005;
+        s.position.z += Math.sin(t * d.speed + d.az) * 0.0008;
+
+        // clamp slightly so they don't drift away
+        const r = Math.sqrt(s.position.x ** 2 + s.position.z ** 2);
+        if (r > parameters.radius * 1.6) {
+          s.position.x *= 0.98;
+          s.position.z *= 0.98;
+        }
+
+        // distance-based scale (keeps them visible)
+        const dist = camera.position.distanceTo(s.position);
+        const scale = s.userData.baseScale * THREE.MathUtils.clamp(dist / 10, 0.8, 1.8);
+        s.scale.set(scale * 2.2, scale * 1.0, 1);
+      }
+
+      controls.update();
+      renderer.render(scene, camera);
+      requestAnimationFrame(tick);
+    }
+    tick();
+
+    // =========================
+    // RESIZE
+    // =========================
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+
+      // optional: regenerate text sprites for sharpness at new resolution
+      placeLoveTexts(90);
+    });
+  </script>
+</body>
+</html>
