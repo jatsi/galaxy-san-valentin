@@ -5,643 +5,721 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Galaxy Love Text (Pulsing RGB Galaxy)</title>
   <style>
-    html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; }
-    #bg-canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #000;
+    }
+
+    #bg-canvas {
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      display: block;
+    }
+
+    #error-box {
+      position: fixed;
+      left: 12px;
+      bottom: 12px;
+      max-width: min(700px, calc(100vw - 24px));
+      padding: 10px 12px;
+      background: rgba(0, 0, 0, 0.8);
+      color: #ffb3b3;
+      border: 1px solid rgba(255, 120, 120, 0.35);
+      border-radius: 10px;
+      font: 14px/1.4 system-ui, Arial, sans-serif;
+      white-space: pre-wrap;
+      z-index: 9999;
+      display: none;
+    }
   </style>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.136.0/build/three.module.js",
+      "three/": "https://unpkg.com/three@0.136.0/"
+    }
+  }
+  </script>
 </head>
 <body>
   <canvas id="bg-canvas"></canvas>
+  <div id="error-box"></div>
 
   <script type="module">
-    import * as THREE from 'https://cdn.skypack.dev/three@0.136.0';
-    import { OrbitControls } from 'https://cdn.skypack.dev/three@0.136.0/examples/jsm/controls/OrbitControls.js';
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
-    // =========================
-    // SCENE
-    // =========================
-    const canvas = document.getElementById('bg-canvas');
-    const scene = new THREE.Scene();
-    scene.fog = new THREE.FogExp2(0x000000, 0.03);
-
-    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 120);
-    camera.position.set(4, 3, 6);
-
-    const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-
-    const controls = new OrbitControls(camera, canvas);
-    controls.enableDamping = true;
-    controls.enableZoom = true;
-    controls.zoomSpeed = 0.8;
-    controls.minDistance = 1.2;
-    controls.maxDistance = 30;
-    controls.autoRotate = true;
-    controls.autoRotateSpeed = 0.35;
-    controls.dampingFactor = 0.05;
-
-    // =========================
-    // GALAXY CONFIG
-    // =========================
-    const parameters = {
-      count: 20000,
-      size: 0.020,     // ⭐ un poquito más grande
-      radius: 8,
-      branches: 4,
-      spin: 1,
-      randomness: 0.3,
-      randomnessPower: 3,
-      insideColor: '#ff6030',
-      outsideColor: '#1b3984',
-      jetCount: 0
+    const errorBox = document.getElementById('error-box');
+    const showError = (err) => {
+      const text = err instanceof Error ? (err.stack || err.message) : String(err);
+      errorBox.style.display = 'block';
+      errorBox.textContent = text;
+      console.error(err);
     };
 
-    // refs
-    let galaxyPoints = null;
-    let galaxyGeo = null;
-    let galaxyMat = null;
+    try {
+      // =========================
+      // SCENE
+      // =========================
+      const canvas = document.getElementById('bg-canvas');
+      const scene = new THREE.Scene();
+      scene.fog = new THREE.FogExp2(0x000000, 0.03);
 
-    let blackHoleMesh = null, accretionMesh = null, accretionMeshHalo = null, accretionPoints = null;
+      const camera = new THREE.PerspectiveCamera(
+        75,
+        window.innerWidth / window.innerHeight,
+        0.1,
+        120
+      );
+      camera.position.set(4, 3, 6);
 
-    let bgStars = null;
-    let starMat = null;
-
-    // =========================
-    // BLACK HOLE
-    // =========================
-    const generateBlackHole = () => {
-      // cleanup
-      if (blackHoleMesh) {
-        scene.remove(blackHoleMesh);
-        scene.remove(accretionMesh);
-        scene.remove(accretionMeshHalo);
-        if (accretionPoints) scene.remove(accretionPoints);
-      }
-
-      // event horizon
-      const bhGeometry = new THREE.SphereGeometry(0.25, 64, 64);
-      const bhMaterial = new THREE.MeshBasicMaterial({ color: 0x000000 });
-      blackHoleMesh = new THREE.Mesh(bhGeometry, bhMaterial);
-      scene.add(blackHoleMesh);
-
-      // disk
-      const diskGeometry = new THREE.RingGeometry(0.28, 0.55, 64, 8);
-      const diskMaterial = new THREE.MeshBasicMaterial({
-        color: 0xffaa00,
-        side: THREE.DoubleSide,
-        transparent: true,
-        opacity: 0.7,
-        blending: THREE.AdditiveBlending
+      const renderer = new THREE.WebGLRenderer({
+        canvas,
+        alpha: true,
+        antialias: true
       });
-      accretionMesh = new THREE.Mesh(diskGeometry, diskMaterial);
-      accretionMesh.rotation.x = Math.PI / 2;
-      scene.add(accretionMesh);
-
-      // halo ring
-      const haloGeometry = new THREE.RingGeometry(0.26, 0.40, 64, 8);
-      const haloMaterial = new THREE.MeshBasicMaterial({
-        color: 0xff4400,
-        side: THREE.DoubleSide,
-        transparent: true,
-        opacity: 0.4,
-        blending: THREE.AdditiveBlending
-      });
-      accretionMeshHalo = new THREE.Mesh(haloGeometry, haloMaterial);
-      accretionMeshHalo.rotation.y = Math.PI / 3;
-      scene.add(accretionMeshHalo);
-
-      // accretion particles
-      const accParticlesCount = 2500;
-      const accGeo = new THREE.BufferGeometry();
-      const accPos = new Float32Array(accParticlesCount * 3);
-      const accCol = new Float32Array(accParticlesCount * 3);
-      const baseColor = new THREE.Color(0xffaa55);
-
-      for (let i = 0; i < accParticlesCount; i++) {
-        const i3 = i * 3;
-        const r = 0.26 + Math.random() * 0.25;
-        const angle = Math.random() * Math.PI * 2;
-        const y = (Math.random() - 0.5) * 0.015;
-
-        accPos[i3] = Math.cos(angle) * r;
-        accPos[i3 + 1] = y;
-        accPos[i3 + 2] = Math.sin(angle) * r;
-
-        const heat = 1 - ((r - 0.26) / 0.25);
-        const pColor = baseColor.clone();
-        pColor.offsetHSL(0, 0, heat * 0.5);
-
-        accCol[i3] = pColor.r;
-        accCol[i3 + 1] = pColor.g;
-        accCol[i3 + 2] = pColor.b;
-      }
-
-      accGeo.setAttribute('position', new THREE.BufferAttribute(accPos, 3));
-      accGeo.setAttribute('color', new THREE.BufferAttribute(accCol, 3));
-
-      const accMat = new THREE.PointsMaterial({
-        size: 0.012,
-        vertexColors: true,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false
-      });
-      accretionPoints = new THREE.Points(accGeo, accMat);
-      scene.add(accretionPoints);
-    };
-
-    // =========================
-    // GALAXY (SHADER: pulsing RGB aura)
-    // =========================
-    const generateGalaxyShader = () => {
-      if (galaxyPoints) {
-        galaxyGeo.dispose();
-        galaxyMat.dispose();
-        scene.remove(galaxyPoints);
-      }
-
-      galaxyGeo = new THREE.BufferGeometry();
-      const positions = new Float32Array(parameters.count * 3);
-      const baseColors = new Float32Array(parameters.count * 3);
-      const aSeed = new Float32Array(parameters.count);
-
-      const colorInside = new THREE.Color(parameters.insideColor);
-      const colorOutside = new THREE.Color(parameters.outsideColor);
-
-      for (let i = 0; i < parameters.count; i++) {
-        const i3 = i * 3;
-
-        let radius = Math.random() * parameters.radius;
-        if (radius < 1.0) radius += 1.0;
-
-        const spinAngle = radius * parameters.spin;
-        const branchAngle = (i % parameters.branches) / parameters.branches * Math.PI * 2;
-
-        const randomX = Math.pow(Math.random(), parameters.randomnessPower) * (Math.random() < 0.5 ? 1 : -1) * parameters.randomness * radius;
-        const randomY = Math.pow(Math.random(), parameters.randomnessPower) * (Math.random() < 0.5 ? 1 : -1) * parameters.randomness * radius;
-        const randomZ = Math.pow(Math.random(), parameters.randomnessPower) * (Math.random() < 0.5 ? 1 : -1) * parameters.randomness * radius;
-
-        const x = Math.cos(branchAngle + spinAngle) * radius + randomX;
-        const y = randomY / 2;
-        const z = Math.sin(branchAngle + spinAngle) * radius + randomZ;
-
-        positions[i3] = x;
-        positions[i3 + 1] = y;
-        positions[i3 + 2] = z;
-
-        // base gradient (como antes)
-        const mixed = colorInside.clone().lerp(colorOutside, radius / parameters.radius);
-        baseColors[i3] = mixed.r;
-        baseColors[i3 + 1] = mixed.g;
-        baseColors[i3 + 2] = mixed.b;
-
-        aSeed[i] = Math.random();
-      }
-
-      galaxyGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-      galaxyGeo.setAttribute('aBaseColor', new THREE.BufferAttribute(baseColors, 3));
-      galaxyGeo.setAttribute('aSeed', new THREE.BufferAttribute(aSeed, 1));
-
-      galaxyMat = new THREE.ShaderMaterial({
-        transparent: true,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-        uniforms: {
-          uTime: { value: 0 },
-          uPixelRatio: { value: renderer.getPixelRatio() },
-          uSize: { value: parameters.size },
-
-          // Ajustes del pulso RGB
-          uHueSpeed:   { value: 0.20 }, // velocidad de cambio de color
-          uPulseSpeed: { value: 1.60 }, // velocidad de pulso
-          uPulseAmp:   { value: 0.35 }, // fuerza del pulso (0..1)
-          uTintMix:    { value: 0.55 }, // mezcla tint RGB vs color base
-          uWaveFreq:   { value: 0.55 }, // onda “aura” por distancia
-        },
-        vertexShader: `
-          uniform float uTime;
-          uniform float uPixelRatio;
-          uniform float uSize;
-
-          attribute vec3 aBaseColor;
-          attribute float aSeed;
-
-          varying vec3 vBaseColor;
-          varying vec3 vPos;
-          varying float vSeed;
-
-          void main() {
-            vBaseColor = aBaseColor;
-            vPos = position;
-            vSeed = aSeed;
-
-            vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-
-            // tamaño en pantalla con perspectiva
-            gl_PointSize = (uSize * 100.0) * uPixelRatio * (1.0 / -mvPosition.z);
-
-            gl_Position = projectionMatrix * mvPosition;
-          }
-        `,
-        fragmentShader: `
-          precision highp float;
-
-          uniform float uTime;
-          uniform float uHueSpeed;
-          uniform float uPulseSpeed;
-          uniform float uPulseAmp;
-          uniform float uTintMix;
-          uniform float uWaveFreq;
-
-          varying vec3 vBaseColor;
-          varying vec3 vPos;
-          varying float vSeed;
-
-          vec3 hsl2rgb(vec3 c) {
-            vec3 rgb = clamp(abs(mod(c.x*6.0 + vec3(0.0,4.0,2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);
-            return c.z + c.y * (rgb - 0.5) * (1.0 - abs(2.0*c.z - 1.0));
-          }
-
-          void main() {
-            // Glow circular con borde suave
-            vec2 uv = gl_PointCoord.xy * 2.0 - 1.0;
-            float r = dot(uv, uv);
-            if (r > 1.0) discard;
-
-            float core = smoothstep(1.0, 0.0, r);
-            float halo = smoothstep(1.0, 0.15, r) * 0.55;
-            float shape = core * 0.9 + halo;
-
-            // === Aura RGB pulsante ===
-            float radial = length(vPos.xz);
-
-            // onda espacial + tiempo (da sensación “luz viva”)
-            float wave = sin(radial * uWaveFreq - uTime * 0.9);
-
-            // hue global + onda + seed
-            float hue = fract(uTime * uHueSpeed + wave * 0.12 + vSeed * 0.03);
-
-            // pulso general (como “latido”)
-            float pulse = 1.0 + uPulseAmp * sin(uTime * uPulseSpeed);
-
-            // twinkle leve por estrella
-            float tw = 0.85 + 0.15 * sin(uTime * (1.7 + vSeed * 2.0) + vSeed * 10.0);
-
-            // tint RGB (luminosidad sube/baja con wave)
-            float light = clamp(0.55 + 0.18 * wave, 0.35, 0.78);
-            vec3 tint = hsl2rgb(vec3(hue, 1.0, light));
-
-            // mezcla entre color base + tint
-            vec3 col = mix(vBaseColor, tint, uTintMix);
-
-            // brillo final
-            col *= (1.10 + 0.55 * shape) * pulse;
-
-            float alpha = clamp(shape * 0.95 * tw, 0.0, 1.0);
-            gl_FragColor = vec4(col, alpha);
-          }
-        `
-      });
-
-      galaxyPoints = new THREE.Points(galaxyGeo, galaxyMat);
-      scene.add(galaxyPoints);
-    };
-
-    // =========================
-    // BACKGROUND STARS (SHADER rainbow wave)
-    // =========================
-    const generateBgStarsShader = () => {
-      if (bgStars) {
-        bgStars.geometry.dispose();
-        bgStars.material.dispose();
-        scene.remove(bgStars);
-      }
-
-      const starCount = 4200;
-      const starGeo = new THREE.BufferGeometry();
-      const pos = new Float32Array(starCount * 3);
-      const aSize = new Float32Array(starCount);
-      const aSeed = new Float32Array(starCount);
-
-      for (let i = 0; i < starCount; i++) {
-        const i3 = i * 3;
-        const R = 18 + Math.random() * 95;
-        const theta = 2 * Math.PI * Math.random();
-        const phi = Math.acos(2 * Math.random() - 1);
-
-        pos[i3]     = R * Math.sin(phi) * Math.cos(theta);
-        pos[i3 + 1] = R * Math.sin(phi) * Math.sin(theta);
-        pos[i3 + 2] = R * Math.cos(phi);
-
-        aSize[i] = 7.0 + Math.random() * 11.0;
-        aSeed[i] = Math.random();
-      }
-
-      starGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-      starGeo.setAttribute('aSize', new THREE.BufferAttribute(aSize, 1));
-      starGeo.setAttribute('aSeed', new THREE.BufferAttribute(aSeed, 1));
-
-      starMat = new THREE.ShaderMaterial({
-        transparent: true,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-        uniforms: {
-          uTime: { value: 0 },
-          uPixelRatio: { value: renderer.getPixelRatio() },
-          uBaseOpacity: { value: 0.85 },
-          uSpeed: { value: 0.55 },
-          uFreq:  { value: 0.09 },
-        },
-        vertexShader: `
-          uniform float uPixelRatio;
-          attribute float aSize;
-          attribute float aSeed;
-          varying vec3 vWorldPos;
-          varying float vSeed;
-
-          void main() {
-            vWorldPos = position;
-            vSeed = aSeed;
-
-            vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-            gl_PointSize = (aSize * uPixelRatio) * (1.0 / -mvPosition.z);
-            gl_Position = projectionMatrix * mvPosition;
-          }
-        `,
-        fragmentShader: `
-          precision highp float;
-
-          uniform float uTime;
-          uniform float uBaseOpacity;
-          uniform float uSpeed;
-          uniform float uFreq;
-
-          varying vec3 vWorldPos;
-          varying float vSeed;
-
-          vec3 hsl2rgb(vec3 c) {
-            vec3 rgb = clamp(abs(mod(c.x*6.0 + vec3(0.0,4.0,2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);
-            return c.z + c.y * (rgb - 0.5) * (1.0 - abs(2.0*c.z - 1.0));
-          }
-
-          void main() {
-            vec2 uv = gl_PointCoord.xy * 2.0 - 1.0;
-            float r = dot(uv, uv);
-            if (r > 1.0) discard;
-
-            float core = smoothstep(1.0, 0.0, r);
-            float halo = smoothstep(1.0, 0.2, r) * 0.65;
-            float alphaShape = (core * 0.9 + halo);
-
-            float radial = length(vWorldPos.xz);
-            float wave = sin(radial * uFreq - uTime * uSpeed);
-            float hue = fract(uTime * 0.08 + wave * 0.18);
-
-            float tw = 0.80 + 0.20 * sin(uTime * (2.2 + vSeed*2.0) + vSeed*10.0);
-            float pulse = 0.78 + 0.22 * sin(uTime * 1.35);
-
-            float light = clamp(0.55 + 0.22 * wave, 0.35, 0.78);
-            vec3 rgb = hsl2rgb(vec3(hue, 1.0, light));
-            rgb *= (1.15 + 0.45 * alphaShape);
-
-            float opacity = uBaseOpacity * alphaShape * tw * pulse;
-            gl_FragColor = vec4(rgb, opacity);
-          }
-        `
-      });
-
-      bgStars = new THREE.Points(starGeo, starMat);
-      scene.add(bgStars);
-    };
-
-    // =========================
-    // TEXTS IN SPACE (tu lista)
-    // =========================
-    const lovePhrases = [
-      { t: "Los amo, feliz San Valentín", lang: "ES" },
-      { t: "Jose Alfredo", lang: "ES" },
-      { t: "LaDuffyINC", lang: "ES" },
-      { t: "Duffy||Prod", lang: "ES" },
-      { t: "🎮𝙳𝚊𝚗𝚝𝚎 𝙹𝚀 🐾", lang: "ES" },
-      { t: "×͜×ᴛɪᴛᴀɴ_ᴄᴀᴘɪ┊ᴇᴅɪᴛs┊ᴅ┊ɴɪɴɪ♡", lang: "ES" },
-      { t: "elToño", lang: "ES" },
-      { t: "Javier28199 Perrito D”Katia", lang: "ES" },
-      { t: "kingojira01", lang: "ES" },
-      { t: "Thanos 💖✨", lang: "ES" },
-      { t: "Nara", lang: "ES" },
-      { t: "Ed_Rz(honeylemon)", lang: "ES" },
-      { t: "Sukuna", lang: "ES" },
-      { t: "López", lang: "ES" },
-      { t: "ETER", lang: "ES" },
-      { t: "Chuys", lang: "ES" },
-      { t: "🍒Marroncito*Rands🍒🐰😈", lang: "ES" },
-      { t: "Jorge", lang: "ES" },
-      { t: "Brayan", lang: "ES" },
-      { t: "Ale Sempai", lang: "ES" },
-      { t: "Mark_My_Love", lang: "ES" },
-      { t: "Mark_Tu_Amorcito 💖", lang: "ES" },
-      { t: "𝓱𝓪𝔂𝓲𝓶𝓮 𝓭𝓮 𝓱𝓮𝔂", lang: "ES" },
-      { t: "Johan", lang: "ES" },
-      { t: "KENTA", lang: "ES" },
-      { t: "santiago", lang: "ES" },
-      { t: "Lu.ARMOA", lang: "ES" },
-      { t: "Sergio", lang: "ES" },
-      { t: "Santy", lang: "ES" },
-      { t: "Obed", lang: "ES" },
-      { t: "RevliD", lang: "ES" },
-      { t: "Daniel_ak", lang: "ES" },
-      { t: "Nemuresu Shin", lang: "ES" },
-      { t: "Amane", lang: "ES" },
-      { t: "WhioSFFD", lang: "ES" },
-      { t: "szdeku", lang: "ES" },
-      { t: "DizekVT", lang: "ES" },
-      { t: "Erik", lang: "ES" },
-      { t: "eduarv", lang: "ES" },
-      { t: "vikozuky", lang: "ES" },
-      { t: "Diego", lang: "ES" },
-      { t: "Martin", lang: "ES" },
-      { t: "JUANNN", lang: "ES" },
-      { t: "USAGIVR", lang: "ES" },
-      { t: "Eduardo👽", lang: "ES" },
-      { t: "Israel guapo", lang: "ES" },
-      { t: "Sammy", lang: "ES" },
-      { t: "Alexis MTV", lang: "ES" },
-      { t: "ElpadrinoXbox🐼", lang: "ES" },
-        { t: "Jorge de Jatsi", lang: "ES" },
-            { t: "Dracko", lang: "ES" },
-            { t: "FLENNIX", lang: "ES" },
-            { t: "কĶĮŖĄক", lang: "ES" },
-             { t: "Ecayapaz", lang: "ES" },
-
-    ];
-
-    const fontStacks = [
-      "900 64px Inter, system-ui, sans-serif",
-      "800 64px system-ui, -apple-system, Segoe UI, sans-serif",
-      "900 64px 'Trebuchet MS', Arial, sans-serif",
-      "800 64px 'Arial Black', Arial, sans-serif",
-      "900 64px Georgia, serif",
-      "900 64px 'Times New Roman', serif",
-      "800 64px Verdana, sans-serif",
-      "900 64px Tahoma, sans-serif"
-    ];
-
-    const loveGroup = new THREE.Group();
-    scene.add(loveGroup);
-
-    const rand = (min, max) => min + Math.random() * (max - min);
-
-    function makeTextSprite(text, options = {}) {
-      const font = fontStacks[(Math.random() * fontStacks.length) | 0];
-      const fill = options.fill || `hsla(${(Math.random() * 360) | 0}, 90%, 60%, 0.95)`;
-      const stroke = options.stroke || "rgba(255,255,255,0.25)";
-      const strokeWidth = options.strokeWidth ?? 6;
-      const glow = options.glow ?? true;
-      const padding = options.padding ?? 50;
-
-      const c = document.createElement("canvas");
-      const ctx = c.getContext("2d");
-
-      ctx.font = font;
-      const w = Math.ceil(ctx.measureText(text).width);
-      const h = 80;
-
-      c.width = w + padding * 2;
-      c.height = h + padding * 2;
-
-      ctx.clearRect(0, 0, c.width, c.height);
-      ctx.font = font;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-
-      if (glow) {
-        ctx.shadowColor = fill;
-        ctx.shadowBlur = 30;
-      }
-
-      ctx.lineWidth = strokeWidth;
-      ctx.strokeStyle = stroke;
-      ctx.strokeText(text, c.width / 2, c.height / 2);
-
-      ctx.fillStyle = fill;
-      ctx.fillText(text, c.width / 2, c.height / 2);
-
-      const tex = new THREE.CanvasTexture(c);
-      tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
-      tex.needsUpdate = true;
-
-      const mat = new THREE.SpriteMaterial({
-        map: tex,
-        transparent: true,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending
-      });
-
-      const sprite = new THREE.Sprite(mat);
-      sprite.userData.baseScale = rand(0.35, 0.85);
-      sprite.scale.set(sprite.userData.baseScale * 2.2, sprite.userData.baseScale * 1.0, 1);
-      return sprite;
-    }
-
-    function placeLoveTexts(count = 150) {
-      while (loveGroup.children.length) {
-        const obj = loveGroup.children.pop();
-        if (obj.material?.map) obj.material.map.dispose();
-        if (obj.material) obj.material.dispose();
-      }
-
-      for (let i = 0; i < count; i++) {
-        const p = lovePhrases[(Math.random() * lovePhrases.length) | 0].t;
-
-        const sprite = makeTextSprite(p, {
-          stroke: `hsla(${(Math.random() * 360) | 0}, 80%, 85%, 0.18)`,
-          strokeWidth: (Math.random() < 0.5 ? 5 : 7),
-          glow: true
-        });
-
-        const radius = Math.random() < 0.85 ? rand(1.2, parameters.radius * 0.95) : rand(parameters.radius * 0.95, parameters.radius * 1.35);
-        const angle = rand(0, Math.PI * 2);
-        const height = (Math.random() - 0.5) * rand(0.25, 2.2);
-
-        sprite.position.set(Math.cos(angle) * radius, height, Math.sin(angle) * radius);
-        sprite.center.set(0.5, 0.5);
-
-        sprite.userData.drift = {
-          ax: rand(-0.25, 0.25),
-          ay: rand(-0.10, 0.10),
-          az: rand(-0.25, 0.25),
-          speed: rand(0.05, 0.25)
-        };
-
-        loveGroup.add(sprite);
-      }
-    }
-
-    // =========================
-    // INIT
-    // =========================
-    generateBlackHole();
-    generateGalaxyShader();
-    generateBgStarsShader();
-    placeLoveTexts(90);
-
-    // =========================
-    // ANIMATION LOOP
-    // =========================
-    const clock = new THREE.Clock();
-
-    function tick() {
-      const t = clock.getElapsedTime();
-
-      // animate central system
-      if (accretionPoints) accretionPoints.rotation.y = t * 2.0;
-      if (accretionMesh) accretionMesh.rotation.z = t * 1.5;
-      if (accretionMeshHalo) accretionMeshHalo.rotation.z = -t * 0.5;
-
-      // rotate galaxy slowly
-      if (galaxyPoints) galaxyPoints.rotation.y = t * 0.05;
-
-      // update shader times (ESTO es lo que hace el pulso real)
-      if (galaxyMat) galaxyMat.uniforms.uTime.value = t;
-      if (starMat) starMat.uniforms.uTime.value = t;
-
-      // drift text
-      for (const s of loveGroup.children) {
-        const d = s.userData.drift;
-        s.position.x += Math.sin(t * d.speed + d.ax) * 0.0008;
-        s.position.y += Math.cos(t * d.speed + d.ay) * 0.0005;
-        s.position.z += Math.sin(t * d.speed + d.az) * 0.0008;
-
-        const rr = Math.sqrt(s.position.x ** 2 + s.position.z ** 2);
-        if (rr > parameters.radius * 1.6) {
-          s.position.x *= 0.98;
-          s.position.z *= 0.98;
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+      const controls = new OrbitControls(camera, canvas);
+      controls.enableDamping = true;
+      controls.enableZoom = true;
+      controls.zoomSpeed = 0.8;
+      controls.minDistance = 1.2;
+      controls.maxDistance = 30;
+      controls.autoRotate = true;
+      controls.autoRotateSpeed = 0.35;
+      controls.dampingFactor = 0.05;
+
+      // =========================
+      // GALAXY CONFIG
+      // =========================
+      const parameters = {
+        count: 20000,
+        size: 0.020,
+        radius: 8,
+        branches: 4,
+        spin: 1,
+        randomness: 0.3,
+        randomnessPower: 3,
+        insideColor: '#ff6030',
+        outsideColor: '#1b3984',
+        jetCount: 0
+      };
+
+      // refs
+      let galaxyPoints = null;
+      let galaxyGeo = null;
+      let galaxyMat = null;
+
+      let blackHoleMesh = null;
+      let accretionMesh = null;
+      let accretionMeshHalo = null;
+      let accretionPoints = null;
+
+      let bgStars = null;
+      let starMat = null;
+
+      // =========================
+      // BLACK HOLE
+      // =========================
+      const generateBlackHole = () => {
+        if (blackHoleMesh) {
+          scene.remove(blackHoleMesh);
+          if (accretionMesh) scene.remove(accretionMesh);
+          if (accretionMeshHalo) scene.remove(accretionMeshHalo);
+          if (accretionPoints) scene.remove(accretionPoints);
+
+          blackHoleMesh.geometry?.dispose();
+          blackHoleMesh.material?.dispose();
+          accretionMesh?.geometry?.dispose();
+          accretionMesh?.material?.dispose();
+          accretionMeshHalo?.geometry?.dispose();
+          accretionMeshHalo?.material?.dispose();
+          accretionPoints?.geometry?.dispose();
+          accretionPoints?.material?.dispose();
         }
 
-        const dist = camera.position.distanceTo(s.position);
-        const scale = s.userData.baseScale * THREE.MathUtils.clamp(dist / 10, 0.8, 1.8);
-        s.scale.set(scale * 2.2, scale * 1.0, 1);
+        // event horizon
+        const bhGeometry = new THREE.SphereGeometry(0.25, 64, 64);
+        const bhMaterial = new THREE.MeshBasicMaterial({ color: 0x000000 });
+        blackHoleMesh = new THREE.Mesh(bhGeometry, bhMaterial);
+        scene.add(blackHoleMesh);
+
+        // disk
+        const diskGeometry = new THREE.RingGeometry(0.28, 0.55, 64, 8);
+        const diskMaterial = new THREE.MeshBasicMaterial({
+          color: 0xffaa00,
+          side: THREE.DoubleSide,
+          transparent: true,
+          opacity: 0.7,
+          blending: THREE.AdditiveBlending
+        });
+        accretionMesh = new THREE.Mesh(diskGeometry, diskMaterial);
+        accretionMesh.rotation.x = Math.PI / 2;
+        scene.add(accretionMesh);
+
+        // halo ring
+        const haloGeometry = new THREE.RingGeometry(0.26, 0.40, 64, 8);
+        const haloMaterial = new THREE.MeshBasicMaterial({
+          color: 0xff4400,
+          side: THREE.DoubleSide,
+          transparent: true,
+          opacity: 0.4,
+          blending: THREE.AdditiveBlending
+        });
+        accretionMeshHalo = new THREE.Mesh(haloGeometry, haloMaterial);
+        accretionMeshHalo.rotation.y = Math.PI / 3;
+        scene.add(accretionMeshHalo);
+
+        // accretion particles
+        const accParticlesCount = 2500;
+        const accGeo = new THREE.BufferGeometry();
+        const accPos = new Float32Array(accParticlesCount * 3);
+        const accCol = new Float32Array(accParticlesCount * 3);
+        const baseColor = new THREE.Color(0xffaa55);
+
+        for (let i = 0; i < accParticlesCount; i++) {
+          const i3 = i * 3;
+          const r = 0.26 + Math.random() * 0.25;
+          const angle = Math.random() * Math.PI * 2;
+          const y = (Math.random() - 0.5) * 0.015;
+
+          accPos[i3] = Math.cos(angle) * r;
+          accPos[i3 + 1] = y;
+          accPos[i3 + 2] = Math.sin(angle) * r;
+
+          const heat = 1 - ((r - 0.26) / 0.25);
+          const pColor = baseColor.clone();
+          pColor.offsetHSL(0, 0, heat * 0.5);
+
+          accCol[i3] = pColor.r;
+          accCol[i3 + 1] = pColor.g;
+          accCol[i3 + 2] = pColor.b;
+        }
+
+        accGeo.setAttribute('position', new THREE.BufferAttribute(accPos, 3));
+        accGeo.setAttribute('color', new THREE.BufferAttribute(accCol, 3));
+
+        const accMat = new THREE.PointsMaterial({
+          size: 0.012,
+          vertexColors: true,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false
+        });
+
+        accretionPoints = new THREE.Points(accGeo, accMat);
+        scene.add(accretionPoints);
+      };
+
+      // =========================
+      // GALAXY (SHADER: pulsing RGB aura)
+      // =========================
+      const generateGalaxyShader = () => {
+        if (galaxyPoints) {
+          scene.remove(galaxyPoints);
+          galaxyGeo?.dispose();
+          galaxyMat?.dispose();
+        }
+
+        galaxyGeo = new THREE.BufferGeometry();
+        const positions = new Float32Array(parameters.count * 3);
+        const baseColors = new Float32Array(parameters.count * 3);
+        const aSeed = new Float32Array(parameters.count);
+
+        const colorInside = new THREE.Color(parameters.insideColor);
+        const colorOutside = new THREE.Color(parameters.outsideColor);
+
+        for (let i = 0; i < parameters.count; i++) {
+          const i3 = i * 3;
+
+          let radius = Math.random() * parameters.radius;
+          if (radius < 1.0) radius += 1.0;
+
+          const spinAngle = radius * parameters.spin;
+          const branchAngle = ((i % parameters.branches) / parameters.branches) * Math.PI * 2;
+
+          const randomX =
+            Math.pow(Math.random(), parameters.randomnessPower) *
+            (Math.random() < 0.5 ? 1 : -1) *
+            parameters.randomness *
+            radius;
+
+          const randomY =
+            Math.pow(Math.random(), parameters.randomnessPower) *
+            (Math.random() < 0.5 ? 1 : -1) *
+            parameters.randomness *
+            radius;
+
+          const randomZ =
+            Math.pow(Math.random(), parameters.randomnessPower) *
+            (Math.random() < 0.5 ? 1 : -1) *
+            parameters.randomness *
+            radius;
+
+          const x = Math.cos(branchAngle + spinAngle) * radius + randomX;
+          const y = randomY / 2;
+          const z = Math.sin(branchAngle + spinAngle) * radius + randomZ;
+
+          positions[i3] = x;
+          positions[i3 + 1] = y;
+          positions[i3 + 2] = z;
+
+          const mixed = colorInside.clone().lerp(colorOutside, radius / parameters.radius);
+          baseColors[i3] = mixed.r;
+          baseColors[i3 + 1] = mixed.g;
+          baseColors[i3 + 2] = mixed.b;
+
+          aSeed[i] = Math.random();
+        }
+
+        galaxyGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        galaxyGeo.setAttribute('aBaseColor', new THREE.BufferAttribute(baseColors, 3));
+        galaxyGeo.setAttribute('aSeed', new THREE.BufferAttribute(aSeed, 1));
+
+        galaxyMat = new THREE.ShaderMaterial({
+          transparent: true,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+          uniforms: {
+            uTime: { value: 0 },
+            uPixelRatio: { value: renderer.getPixelRatio() },
+            uSize: { value: parameters.size },
+            uHueSpeed: { value: 0.20 },
+            uPulseSpeed: { value: 1.60 },
+            uPulseAmp: { value: 0.35 },
+            uTintMix: { value: 0.55 },
+            uWaveFreq: { value: 0.55 }
+          },
+          vertexShader: `
+            uniform float uPixelRatio;
+            uniform float uSize;
+
+            attribute vec3 aBaseColor;
+            attribute float aSeed;
+
+            varying vec3 vBaseColor;
+            varying vec3 vPos;
+            varying float vSeed;
+
+            void main() {
+              vBaseColor = aBaseColor;
+              vPos = position;
+              vSeed = aSeed;
+
+              vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+              gl_PointSize = (uSize * 100.0) * uPixelRatio * (1.0 / -mvPosition.z);
+              gl_Position = projectionMatrix * mvPosition;
+            }
+          `,
+          fragmentShader: `
+            precision highp float;
+
+            uniform float uTime;
+            uniform float uHueSpeed;
+            uniform float uPulseSpeed;
+            uniform float uPulseAmp;
+            uniform float uTintMix;
+            uniform float uWaveFreq;
+
+            varying vec3 vBaseColor;
+            varying vec3 vPos;
+            varying float vSeed;
+
+            vec3 hsl2rgb(vec3 c) {
+              vec3 rgb = clamp(abs(mod(c.x * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);
+              return c.z + c.y * (rgb - 0.5) * (1.0 - abs(2.0 * c.z - 1.0));
+            }
+
+            void main() {
+              vec2 uv = gl_PointCoord.xy * 2.0 - 1.0;
+              float r = dot(uv, uv);
+              if (r > 1.0) discard;
+
+              float core = smoothstep(1.0, 0.0, r);
+              float halo = smoothstep(1.0, 0.15, r) * 0.55;
+              float shape = core * 0.9 + halo;
+
+              float radial = length(vPos.xz);
+              float wave = sin(radial * uWaveFreq - uTime * 0.9);
+              float hue = fract(uTime * uHueSpeed + wave * 0.12 + vSeed * 0.03);
+              float pulse = 1.0 + uPulseAmp * sin(uTime * uPulseSpeed);
+              float tw = 0.85 + 0.15 * sin(uTime * (1.7 + vSeed * 2.0) + vSeed * 10.0);
+
+              float light = clamp(0.55 + 0.18 * wave, 0.35, 0.78);
+              vec3 tint = hsl2rgb(vec3(hue, 1.0, light));
+              vec3 col = mix(vBaseColor, tint, uTintMix);
+
+              col *= (1.10 + 0.55 * shape) * pulse;
+
+              float alpha = clamp(shape * 0.95 * tw, 0.0, 1.0);
+              gl_FragColor = vec4(col, alpha);
+            }
+          `
+        });
+
+        galaxyPoints = new THREE.Points(galaxyGeo, galaxyMat);
+        scene.add(galaxyPoints);
+      };
+
+      // =========================
+      // BACKGROUND STARS
+      // =========================
+      const generateBgStarsShader = () => {
+        if (bgStars) {
+          scene.remove(bgStars);
+          bgStars.geometry?.dispose();
+          bgStars.material?.dispose();
+        }
+
+        const starCount = 4200;
+        const starGeo = new THREE.BufferGeometry();
+        const pos = new Float32Array(starCount * 3);
+        const aSize = new Float32Array(starCount);
+        const aSeed = new Float32Array(starCount);
+
+        for (let i = 0; i < starCount; i++) {
+          const i3 = i * 3;
+          const R = 18 + Math.random() * 95;
+          const theta = 2 * Math.PI * Math.random();
+          const phi = Math.acos(2 * Math.random() - 1);
+
+          pos[i3] = R * Math.sin(phi) * Math.cos(theta);
+          pos[i3 + 1] = R * Math.sin(phi) * Math.sin(theta);
+          pos[i3 + 2] = R * Math.cos(phi);
+
+          aSize[i] = 7.0 + Math.random() * 11.0;
+          aSeed[i] = Math.random();
+        }
+
+        starGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        starGeo.setAttribute('aSize', new THREE.BufferAttribute(aSize, 1));
+        starGeo.setAttribute('aSeed', new THREE.BufferAttribute(aSeed, 1));
+
+        starMat = new THREE.ShaderMaterial({
+          transparent: true,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+          uniforms: {
+            uTime: { value: 0 },
+            uPixelRatio: { value: renderer.getPixelRatio() },
+            uBaseOpacity: { value: 0.85 },
+            uSpeed: { value: 0.55 },
+            uFreq: { value: 0.09 }
+          },
+          vertexShader: `
+            uniform float uPixelRatio;
+            attribute float aSize;
+            attribute float aSeed;
+            varying vec3 vWorldPos;
+            varying float vSeed;
+
+            void main() {
+              vWorldPos = position;
+              vSeed = aSeed;
+
+              vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+              gl_PointSize = (aSize * uPixelRatio) * (1.0 / -mvPosition.z);
+              gl_Position = projectionMatrix * mvPosition;
+            }
+          `,
+          fragmentShader: `
+            precision highp float;
+
+            uniform float uTime;
+            uniform float uBaseOpacity;
+            uniform float uSpeed;
+            uniform float uFreq;
+
+            varying vec3 vWorldPos;
+            varying float vSeed;
+
+            vec3 hsl2rgb(vec3 c) {
+              vec3 rgb = clamp(abs(mod(c.x * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);
+              return c.z + c.y * (rgb - 0.5) * (1.0 - abs(2.0 * c.z - 1.0));
+            }
+
+            void main() {
+              vec2 uv = gl_PointCoord.xy * 2.0 - 1.0;
+              float r = dot(uv, uv);
+              if (r > 1.0) discard;
+
+              float core = smoothstep(1.0, 0.0, r);
+              float halo = smoothstep(1.0, 0.2, r) * 0.65;
+              float alphaShape = (core * 0.9 + halo);
+
+              float radial = length(vWorldPos.xz);
+              float wave = sin(radial * uFreq - uTime * uSpeed);
+              float hue = fract(uTime * 0.08 + wave * 0.18);
+
+              float tw = 0.80 + 0.20 * sin(uTime * (2.2 + vSeed * 2.0) + vSeed * 10.0);
+              float pulse = 0.78 + 0.22 * sin(uTime * 1.35);
+
+              float light = clamp(0.55 + 0.22 * wave, 0.35, 0.78);
+              vec3 rgb = hsl2rgb(vec3(hue, 1.0, light));
+              rgb *= (1.15 + 0.45 * alphaShape);
+
+              float opacity = uBaseOpacity * alphaShape * tw * pulse;
+              gl_FragColor = vec4(rgb, opacity);
+            }
+          `
+        });
+
+        bgStars = new THREE.Points(starGeo, starMat);
+        scene.add(bgStars);
+      };
+
+      // =========================
+      // TEXTS IN SPACE
+      // =========================
+      const lovePhrases = [
+        { t: "Los amo, feliz San Valentín", lang: "ES" },
+        { t: "Jose Alfredo", lang: "ES" },
+        { t: "LaDuffyINC", lang: "ES" },
+        { t: "Duffy||Prod", lang: "ES" },
+        { t: "🎮𝙳𝚊𝚗𝚝𝚎 𝙹𝚀 🐾", lang: "ES" },
+        { t: "×͜×ᴛɪᴛᴀɴ_ᴄᴀᴘɪ┊ᴇᴅɪᴛs┊ᴅ┊ɴɪɴɪ♡", lang: "ES" },
+        { t: "elToño", lang: "ES" },
+        { t: "Javier28199 Perrito D”Katia", lang: "ES" },
+        { t: "kingojira01", lang: "ES" },
+        { t: "Thanos 💖✨", lang: "ES" },
+        { t: "Nara", lang: "ES" },
+        { t: "Ed_Rz(honeylemon)", lang: "ES" },
+        { t: "Sukuna", lang: "ES" },
+        { t: "López", lang: "ES" },
+        { t: "ETER", lang: "ES" },
+        { t: "Chuys", lang: "ES" },
+        { t: "🍒Marroncito*Rands🍒🐰😈", lang: "ES" },
+        { t: "Jorge", lang: "ES" },
+        { t: "Brayan", lang: "ES" },
+        { t: "Ale Sempai", lang: "ES" },
+        { t: "Mark_My_Love", lang: "ES" },
+        { t: "Mark_Tu_Amorcito 💖", lang: "ES" },
+        { t: "𝓱𝓪𝔂𝓲𝓶𝓮 𝓭𝓮 𝓱𝓮𝔂", lang: "ES" },
+        { t: "Johan", lang: "ES" },
+        { t: "KENTA", lang: "ES" },
+        { t: "santiago", lang: "ES" },
+        { t: "Lu.ARMOA", lang: "ES" },
+        { t: "Sergio", lang: "ES" },
+        { t: "Santy", lang: "ES" },
+        { t: "Obed", lang: "ES" },
+        { t: "RevliD", lang: "ES" },
+        { t: "Daniel_ak", lang: "ES" },
+        { t: "Nemuresu Shin", lang: "ES" },
+        { t: "Amane", lang: "ES" },
+        { t: "WhioSFFD", lang: "ES" },
+        { t: "szdeku", lang: "ES" },
+        { t: "DizekVT", lang: "ES" },
+        { t: "Erik", lang: "ES" },
+        { t: "eduarv", lang: "ES" },
+        { t: "vikozuky", lang: "ES" },
+        { t: "Diego", lang: "ES" },
+        { t: "Martin", lang: "ES" },
+        { t: "JUANNN", lang: "ES" },
+        { t: "USAGIVR", lang: "ES" },
+        { t: "Eduardo👽", lang: "ES" },
+        { t: "Israel guapo", lang: "ES" },
+        { t: "Sammy", lang: "ES" },
+        { t: "Alexis D' Jatsi", lang: "ES" },
+        { t: "ElpadrinoXbox🐼", lang: "ES" },
+        { t: "Jorge de Jatsi", lang: "ES" },
+        { t: "Dracko", lang: "ES" },
+        { t: "FLENNIX", lang: "ES" },
+        { t: "কĶĮŖĄক", lang: "ES" },
+        { t: "Ecayapaz", lang: "ES" }
+      ];
+
+      const fontStacks = [
+        "900 64px Inter, system-ui, sans-serif",
+        "800 64px system-ui, -apple-system, Segoe UI, sans-serif",
+        "900 64px 'Trebuchet MS', Arial, sans-serif",
+        "800 64px 'Arial Black', Arial, sans-serif",
+        "900 64px Georgia, serif",
+        "900 64px 'Times New Roman', serif",
+        "800 64px Verdana, sans-serif",
+        "900 64px Tahoma, sans-serif"
+      ];
+
+      const loveGroup = new THREE.Group();
+      scene.add(loveGroup);
+
+      const rand = (min, max) => min + Math.random() * (max - min);
+
+      function makeTextSprite(text, options = {}) {
+        const font = fontStacks[(Math.random() * fontStacks.length) | 0];
+        const fill = options.fill || `hsla(${(Math.random() * 360) | 0}, 90%, 60%, 0.95)`;
+        const stroke = options.stroke || "rgba(255,255,255,0.25)";
+        const strokeWidth = options.strokeWidth ?? 6;
+        const glow = options.glow ?? true;
+        const padding = options.padding ?? 50;
+
+        const c = document.createElement("canvas");
+        const ctx = c.getContext("2d");
+
+        ctx.font = font;
+        const measured = ctx.measureText(text);
+        const w = Math.max(64, Math.ceil(measured.width));
+        const h = 80;
+
+        c.width = w + padding * 2;
+        c.height = h + padding * 2;
+
+        ctx.clearRect(0, 0, c.width, c.height);
+        ctx.font = font;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+
+        if (glow) {
+          ctx.shadowColor = fill;
+          ctx.shadowBlur = 30;
+        }
+
+        ctx.lineWidth = strokeWidth;
+        ctx.strokeStyle = stroke;
+        ctx.strokeText(text, c.width / 2, c.height / 2);
+
+        ctx.fillStyle = fill;
+        ctx.fillText(text, c.width / 2, c.height / 2);
+
+        const tex = new THREE.CanvasTexture(c);
+        tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+        tex.needsUpdate = true;
+
+        const mat = new THREE.SpriteMaterial({
+          map: tex,
+          transparent: true,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending
+        });
+
+        const sprite = new THREE.Sprite(mat);
+        sprite.userData.baseScale = rand(0.35, 0.85);
+        sprite.scale.set(sprite.userData.baseScale * 2.2, sprite.userData.baseScale * 1.0, 1);
+        return sprite;
       }
 
-      controls.update();
-      renderer.render(scene, camera);
-      requestAnimationFrame(tick);
-    }
-    tick();
+      function clearLoveTexts() {
+        while (loveGroup.children.length > 0) {
+          const obj = loveGroup.children[0];
+          loveGroup.remove(obj);
+          if (obj.material?.map) obj.material.map.dispose();
+          if (obj.material) obj.material.dispose();
+        }
+      }
 
-    // =========================
-    // RESIZE
-    // =========================
-    window.addEventListener('resize', () => {
-      camera.aspect = window.innerWidth / window.innerHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(window.innerWidth, window.innerHeight);
+      function placeLoveTexts(count = 150) {
+        clearLoveTexts();
 
-      const pr = renderer.getPixelRatio();
-      if (galaxyMat) galaxyMat.uniforms.uPixelRatio.value = pr;
-      if (starMat) starMat.uniforms.uPixelRatio.value = pr;
+        for (let i = 0; i < count; i++) {
+          const p = lovePhrases[(Math.random() * lovePhrases.length) | 0].t;
 
+          const sprite = makeTextSprite(p, {
+            stroke: `hsla(${(Math.random() * 360) | 0}, 80%, 85%, 0.18)`,
+            strokeWidth: (Math.random() < 0.5 ? 5 : 7),
+            glow: true
+          });
+
+          const radius =
+            Math.random() < 0.85
+              ? rand(1.2, parameters.radius * 0.95)
+              : rand(parameters.radius * 0.95, parameters.radius * 1.35);
+
+          const angle = rand(0, Math.PI * 2);
+          const height = (Math.random() - 0.5) * rand(0.25, 2.2);
+
+          sprite.position.set(
+            Math.cos(angle) * radius,
+            height,
+            Math.sin(angle) * radius
+          );
+          sprite.center.set(0.5, 0.5);
+
+          sprite.userData.drift = {
+            ax: rand(-0.25, 0.25),
+            ay: rand(-0.10, 0.10),
+            az: rand(-0.25, 0.25),
+            speed: rand(0.05, 0.25)
+          };
+
+          loveGroup.add(sprite);
+        }
+      }
+
+      // =========================
+      // INIT
+      // =========================
+      generateBlackHole();
+      generateGalaxyShader();
+      generateBgStarsShader();
       placeLoveTexts(90);
-    });
+
+      // =========================
+      // ANIMATION LOOP
+      // =========================
+      const clock = new THREE.Clock();
+
+      function tick() {
+        const t = clock.getElapsedTime();
+
+        if (accretionPoints) accretionPoints.rotation.y = t * 2.0;
+        if (accretionMesh) accretionMesh.rotation.z = t * 1.5;
+        if (accretionMeshHalo) accretionMeshHalo.rotation.z = -t * 0.5;
+
+        if (galaxyPoints) galaxyPoints.rotation.y = t * 0.05;
+
+        if (galaxyMat) galaxyMat.uniforms.uTime.value = t;
+        if (starMat) starMat.uniforms.uTime.value = t;
+
+        for (const s of loveGroup.children) {
+          const d = s.userData.drift;
+          s.position.x += Math.sin(t * d.speed + d.ax) * 0.0008;
+          s.position.y += Math.cos(t * d.speed + d.ay) * 0.0005;
+          s.position.z += Math.sin(t * d.speed + d.az) * 0.0008;
+
+          const rr = Math.sqrt(s.position.x ** 2 + s.position.z ** 2);
+          if (rr > parameters.radius * 1.6) {
+            s.position.x *= 0.98;
+            s.position.z *= 0.98;
+          }
+
+          const dist = camera.position.distanceTo(s.position);
+          const scale = s.userData.baseScale * THREE.MathUtils.clamp(dist / 10, 0.8, 1.8);
+          s.scale.set(scale * 2.2, scale * 1.0, 1);
+        }
+
+        controls.update();
+        renderer.render(scene, camera);
+        requestAnimationFrame(tick);
+      }
+
+      tick();
+
+      // =========================
+      // RESIZE
+      // =========================
+      window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+        const pr = renderer.getPixelRatio();
+        if (galaxyMat) galaxyMat.uniforms.uPixelRatio.value = pr;
+        if (starMat) starMat.uniforms.uPixelRatio.value = pr;
+
+        placeLoveTexts(90);
+      });
+
+    } catch (err) {
+      showError(err);
+    }
   </script>
 </body>
 </html>
